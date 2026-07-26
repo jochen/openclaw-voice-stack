@@ -93,6 +93,42 @@ services:
       retries: 5
       start_period: 120s
 
+  # ── Gemma (llama.cpp CUDA) — lokaler Schalt-Aktuator des Voice-Assistant ──────
+  # War zuvor ein handgestarteter Wegwerf-Container (podman run …). Als Dienst
+  # in der Compose überlebt er Reboots und startet nach den anderen KI-Services.
+  # -hf lädt unsloth/gemma-4-E2B-it-GGUF:Q4_K_M direkt aus dem HF-Cache auf dem
+  # Host (/home/jochen/.cache/huggingface); -ngl 99 = alle Layer auf der GPU.
+  llamacpp-gemma:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: llamacpp-gemma
+    devices:
+      - nvidia.com/gpu=all
+    security_opt:
+      - label=disable
+    ports:
+      - "8090:8090"
+    volumes:
+      - /home/jochen/.cache/huggingface:/root/.cache/huggingface
+    command:
+      - "-hf"
+      - "unsloth/gemma-4-E2B-it-GGUF:Q4_K_M"
+      - "-ngl"
+      - "99"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8090"
+      - "--jinja"
+      - "-c"
+      - "4096"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8090/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
   # ── Voice Analysis (CPU-only, Audio-Analyse + SER-backed Stimmung) ───────────
   voice-analysis:
     build:
