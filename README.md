@@ -27,12 +27,45 @@ Compose-Datei.
 | `speaches-warmup` | `alpine`/`curl` | — | One-shot: lädt STT/TTS/Diarization-Modelle beim Start, beendet sich danach |
 | `ser` | `./ser` (Build) | 8002 | Speech Emotion Recognition, `POST /ser` (WAV → arousal/valence/dominance + label), Modell `audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim` (~600 MiB VRAM) |
 | `voice-analysis` | `./voice-analysis` (Build) | 8001 | CPU-only; Re-STT + Texttreue (WER/CER) + Timing + Prosodie; `/mood` SER-backed (ruft `ser:8002` intern) |
+| `mood-warmup` | `curl` | — | One-shot gegen `/mood`. Der erste Aufruf kostet sonst ~15 s (numba-JIT von `librosa.pyin`) und läuft im Voice-Assistant in `DIARIZATION_TIMEOUT` — der erste Sprach-Turn nach einem Neustart verlöre seine Stimmungsanalyse. Muss über `voice-analysis` gehen, nicht direkt gegen `ser`: die Zeit steckt nicht im SER-Modell (Inferenz 25–28 ms) |
+| `llamacpp-gemma` | `ghcr.io/ggml-org/llama.cpp:server-cuda` | 8090 | Nur `compose.gastonllm.yml`: kleines LLM für den Schalt-Aktuator des Voice-Assistant (Gemma, `-ngl 99`) |
+
+## Projektname
+
+`compose.gastonllm.yml` trägt `name: voice-gastonllm`. **Ein Projektname gehört
+genau einer Compose-Datei.** Podman hängt ihn an Netz- und Volume-Namen; zwei
+Stacks mit demselben Namen greifen sich gegenseitig die Container weg.
+
+Bis 2026-08-01 hieß das Projekt hier `ai-stack-gastonllm` — der beim Repo-Split
+mitgeschleppte Name des archivierten Vorgängers, den zeitweise *drei*
+Verzeichnisse trugen. Ergebnis: vier Container liefen aus einem Handstart
+heraus, ohne Compose-Netz, und der Voice-Assistant lief wochenlang unbemerkt
+auf seinen Fallbacks. Details in `DECISIONS.md`.
+
+Beim Umbenennen eines Projekts wandern die Volumes mit. Damit der Modell-Cache
+das überlebt, sind sie explizit festgenagelt — deshalb steht im `volumes:`-Block
+noch der alte Name, das ist Absicht:
+
+```yaml
+volumes:
+  speaches-cache:
+    name: ai-stack-gastonllm_speaches-cache
+```
 
 ## Setup (neuer Host)
 
 ```bash
 cp .env.example .env
 # HF_CACHE-Pfad anpassen
+```
+
+> **`.env` nicht vergessen** — sie ist gitignored und kommt bei einem Klon oder
+> Repo-Split *nicht* mit. Fehlt sie, ist `${HF_CACHE}` leer, der Volume-Mount
+> von `ser` bricht, und Compose sieht „kaputt" aus. Genau das hat hier zum
+> Handstart per `podman run` geführt — und der wiederum zu Containern ohne
+> Compose-Netz. **Dienste immer über Compose starten, nie von Hand.**
+
+```bash
 
 # Passende Compose-Datei fürs jeweilige Modell/GPU als Vorlage nehmen,
 # insb. WHISPER__COMPUTE_TYPE pruefen (siehe DECISIONS.md):

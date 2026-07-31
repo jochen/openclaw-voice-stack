@@ -1,4 +1,15 @@
-name: ai-stack-gastonllm
+# Projektname = Rolle + Host, wie in openclaw-fablab-llm (dort `fablab-llm`).
+# Hiess bis 2026-08-01 `ai-stack-gastonllm` — der Name des inzwischen
+# archivierten Vorgaenger-Repos, der beim Repo-Split mitgeschleppt wurde. Weil
+# ihn DREI Verzeichnisse trugen (~/ai-stack, ~/voice-stack, dieses hier),
+# konnten sich die Stacks gegenseitig die Container wegnehmen; ein Handstart
+# aus dem alten Verzeichnis fiel monatelang nicht auf. Ein Projektname gehoert
+# genau einer Compose-Datei.
+#
+# Was NICHT hierher gehoert: infinity (Embeddings fuer OpenClaws Memory) liegt
+# in ~/openclaw-gastonllm, Projektname openclaw-gastonllm. Dieser Stack ist
+# ausschliesslich die Sprach-Pipeline.
+name: voice-gastonllm
 
 services:
 
@@ -120,7 +131,7 @@ services:
       - "8090"
       - "--jinja"
       - "-c"
-      - "4096"
+      - "8192"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8090/health || exit 1"]
@@ -149,6 +160,47 @@ services:
       retries: 3
       start_period: 30s
 
+  # ── Mood-Warmup ──────────────────────────────────────────────────────────────
+  # Der ERSTE /mood-Aufruf nach einem Stack-Start kostet ~15 s, jeder weitere
+  # 0,2 s. Der Voice-Assistant wartet aber nur DIARIZATION_TIMEOUT — ohne diesen
+  # Warmup verliert der erste Sprach-Turn nach jedem Neustart seine
+  # Stimmungsanalyse, und im Log steht ein irrefuehrendes "Mood: timed out".
+  #
+  # Die Zeit steckt NICHT im SER-Modell (das liegt beim Import im VRAM,
+  # Inferenz 25-28 ms) und auch nicht im CUDA-Warmlauf — sondern in
+  # `librosa.pyin` in voice-analysis: numba kompiliert die Funktion beim ersten
+  # Aufruf. Ein Warmup direkt gegen ser:8002 bringt deshalb NICHTS, das war der
+  # erste, falsche Anlauf. Der Aufruf muss ueber voice-analysis gehen — der
+  # deckt beides ab, denn /mood ruft SER intern selbst auf.
+  #
+  # Eine Sekunde Stille genuegt, es geht nur darum, den Pfad einmal zu gehen.
+  # Die WAV baut sich der Container per printf selbst (44-Byte-Header + Nullen),
+  # damit keine Datei ins Repo muss.
+  mood-warmup:
+    image: quay.io/curl/curl:latest
+    container_name: mood-warmup
+    depends_on:
+      voice-analysis:
+        condition: service_healthy
+    entrypoint: ["/bin/sh"]
+    command:
+      - -c
+      - |
+        printf 'RIFF\x24\x7d\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80\x3e\x00\x00\x00\x7d\x00\x00\x02\x00\x10\x00data\x00\x7d\x00\x00' > /tmp/warm.wav
+        head -c 32000 /dev/zero >> /tmp/warm.wav
+        echo "Warmup /mood (librosa/numba-JIT + SER)"
+        curl -sf -m 180 -X POST http://voice-analysis:8001/mood -F "file=@/tmp/warm.wav" -o /dev/null \
+          && echo "Mood ready." || echo "Mood-Warmup fehlgeschlagen (nicht fatal)."
+    restart: "no"
+
 volumes:
+  # Die Volume-Namen sind ABSICHTLICH festgenagelt. Podman leitet sie sonst aus
+  # dem Projektnamen ab (<projekt>_<volume>) — beim Umbenennen des Projekts von
+  # ai-stack-gastonllm auf voice-gastonllm waeren also zwei leere Volumes
+  # entstanden und der komplette Whisper-/Piper-Cache neu heruntergeladen
+  # worden. Mit explizitem `name:` ueberlebt der Cache jede Umbenennung.
+  # Deshalb steht hier der ALTE Projektname — das ist kein Versehen.
   speaches-cache:
+    name: ai-stack-gastonllm_speaches-cache
   speaches-cuda-cache:
+    name: ai-stack-gastonllm_speaches-cuda-cache
