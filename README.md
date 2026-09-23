@@ -28,7 +28,8 @@ Compose-Datei.
 | `ser` | `./ser` (Build) | 8002 | Speech Emotion Recognition, `POST /ser` (WAV → arousal/valence/dominance + label), Modell `audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim` (~600 MiB VRAM) |
 | `voice-analysis` | `./voice-analysis` (Build) | 8001 | CPU-only; Re-STT + Texttreue (WER/CER) + Timing + Prosodie; `/mood` SER-backed (ruft `ser:8002` intern) |
 | `mood-warmup` | `curl` | — | One-shot gegen `/mood`. Der erste Aufruf kostet sonst ~15 s (numba-JIT von `librosa.pyin`) und läuft im Voice-Assistant in `DIARIZATION_TIMEOUT` — der erste Sprach-Turn nach einem Neustart verlöre seine Stimmungsanalyse. Muss über `voice-analysis` gehen, nicht direkt gegen `ser`: die Zeit steckt nicht im SER-Modell (Inferenz 25–28 ms) |
-| `llamacpp-gemma` | `ghcr.io/ggml-org/llama.cpp:server-cuda` | 8090 | Nur `compose.gastonllm.yml`: kleines LLM für den Schalt-Aktuator des Voice-Assistant (Gemma, `-ngl 99`) |
+| `llamacpp-gemma` | `ghcr.io/ggml-org/llama.cpp:server-cuda` | 8090 | Nur `compose.gastonllm.yml`: kleines LLM für den Schalt-Aktuator des Voice-Assistant (Gemma, `-ngl 99`). Seit 2026-09-23 nur noch Rückweg, siehe nächste Zeile |
+| `llamacpp-gemma-vega` | `ghcr.io/ggml-org/llama.cpp:server-vulkan` | 8091 | Nur `compose.gastonllm.yml`: dasselbe Gemma auf der Vega-iGPU des Ryzen (Vulkan), damit die 3060 Ti frei wird. Braucht die udev-Regel `/etc/udev/rules.d/99-gastonllm-igpu.rules` (ACL auf `renderD128` für den rootless-User) — ohne sie rechnet llama.cpp still auf der CPU. Kaltstart 8–12 s je Prompt, aufgewärmt vom Voice-Assistant |
 
 ## Projektname
 
