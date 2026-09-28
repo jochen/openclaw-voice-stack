@@ -190,6 +190,39 @@ services:
       retries: 10
       start_period: 60s
 
+  # ── Laya — Aktuator-Klassifikator im Schattenbetrieb ─────────────────────────
+  # Beantwortet fuer den Voice-Assistant Tor, Ziel und Aktion jedes Satzes, den
+  # dessen Aktuator sieht — neben Gemma, ohne zu schalten (actuator.schatten_url,
+  # Log actuator_schatten.log). Seit 2026-09-29; siehe voice_assistant/services/
+  # aktuator_schatten.py im Repo openclaw_voice_assist.
+  # Der Checkpoint ist auf die Ziele DIESES Hauses trainiert (tools/
+  # laya_aktuator_train.py) und liegt deshalb nicht im Image und nicht im Repo,
+  # sondern unter ${LAYA_MODELLE} auf dem Host. Neue Ziele = neu trainieren.
+  # Nur lokal gebunden: laya-serve kennt keine Anmeldung.
+  laya:
+    build:
+      context: ./laya
+    container_name: laya
+    devices:
+      - nvidia.com/gpu=all
+    security_opt:
+      - label=disable
+    ports:
+      - "127.0.0.1:8096:8096"
+    environment:
+      - LAYA_CKPT=/modelle/aktuator-v1
+      - LAYA_DEVICE=cuda
+      - HF_HUB_OFFLINE=1
+    volumes:
+      - ${LAYA_MODELLE}:/modelle:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8096/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
   # ── Voice Analysis (CPU-only, Audio-Analyse + SER-backed Stimmung) ───────────
   voice-analysis:
     build:
