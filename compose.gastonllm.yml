@@ -84,14 +84,20 @@ services:
     restart: "no"
 
   # ── SER – Speech Emotion Recognition (wav2vec2-large) ────────────────────────
+  # Seit 2026-10-05 auf der CPU (keine GPU-Geraete -> app.py nimmt "cpu"):
+  # macht 1,9 GB auf der 3060 Ti frei, damit Qwen3-ASR dort Platz hat. Die
+  # Stimmung braucht nur der Brain-Weg, und der wartete ohnehin ~2 s auf die
+  # Sprechererkennung. Gemessen (30 Clips): GPU 15 ms, CPU 16 Threads 280 ms,
+  # CPU 4 Threads 398 ms median / 0,9 s p90, Werte identisch (Abw. <= 0,002).
+  # 6 Threads: Parakeet rechnet im Assistenten parallel mit 8 Threads auf der
+  # CPU, beide starten gleichzeitig am Aufnahme-Ende. Zurueck auf die GPU:
+  # devices: [nvidia.com/gpu=all] wieder einsetzen, OMP_NUM_THREADS raus.
   ser:
     build:
       context: ./ser
     container_name: ser
-    devices:
-      - nvidia.com/gpu=all
-    security_opt:
-      - label=disable
+    environment:
+      - OMP_NUM_THREADS=6
     ports:
       - "0.0.0.0:8002:8002"
     volumes:
