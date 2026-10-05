@@ -261,7 +261,7 @@ services:
     ports:
       - "127.0.0.1:8096:8096"
     environment:
-      - LAYA_CKPT=/modelle/aktuator-v3
+      - LAYA_CKPT=/modelle/aktuator-v4
       - LAYA_DEVICE=cuda
       - HF_HUB_OFFLINE=1
     volumes:
