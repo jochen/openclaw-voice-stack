@@ -1,13 +1,15 @@
 import io
 import os
 import re
+import time
 import logging
+import threading
 from typing import Optional
 
 import numpy as np
 import httpx
 import librosa
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
@@ -413,3 +415,84 @@ async def mood_endpoint(file: UploadFile = File(...)):
         }
 
     return JSONResponse(response)
+
+
+# ── /fingerabdruck ───────────────────────────────────────────────────────────
+# Stimm-Fingerabdruck fuer die Sprecher-Verifikation des Voice-Assistant
+# (openclaw_voice_assist, services/sprecher_verifikation.py), fuer Assistenten
+# auf schwacher Hardware: ein Pi 4 braucht dafuer ~0,37 s je Audio-Sekunde
+# (median 2,8 s), hier sind es ~50 ms. Der Vergleich mit den Referenzen bleibt
+# beim Assistenten; hier wird nur gerechnet.
+#
+# Eingang: rohe float32-Samples (little endian), 16 kHz mono, Wertebereich
+# [-1, 1] — genau das Array, das der Assistent sonst selbst rechnen wuerde.
+# Kein WAV: eine Neukodierung nach int16 waere bei Stereo-Referenzen verlustig.
+# _fbank ist eine WOERTLICHE Kopie aus sprecher_verifikation.py, die Pakete
+# sind auf dieselben Versionen gepinnt (requirements.txt) — sonst gelten die
+# gemessenen Schwellen (0,40 / 0,15) nicht. Aendert sich dort die Rechnung,
+# muss sie hier mit.
+
+_FP_MODELL_REPO = "Wespeaker/wespeaker-voxceleb-resnet34-LM"
+_FP_MODELL_DATEI = "voxceleb_resnet34_LM.onnx"
+_FP_RATE = 16000
+_FP_SHIFT_MS = 10
+_fp_sess = None
+_fp_lock = threading.Lock()
+
+
+def _fbank(audio: np.ndarray):
+    """80 Mel-Bänder wie onnx_diarization.fbank, Mittelwert je Band abgezogen."""
+    import kaldi_native_fbank as knf
+
+    o = knf.FbankOptions()
+    o.mel_opts.num_bins = 80
+    o.frame_opts.frame_length_ms = 25
+    o.frame_opts.frame_shift_ms = _FP_SHIFT_MS
+    o.frame_opts.samp_freq = _FP_RATE
+    o.frame_opts.window_type = "hamming"
+    o.frame_opts.dither = 0.0
+    o.frame_opts.snip_edges = True
+    o.frame_opts.round_to_power_of_two = True
+    ex = knf.OnlineFbank(o)
+    ex.accept_waveform(_FP_RATE, (audio * (1 << 15)).astype(np.float32))
+    ex.input_finished()
+    f = np.array([ex.get_frame(j) for j in range(ex.num_frames_ready)], dtype=np.float32)
+    f = f - np.mean(f, axis=0, keepdims=True)
+    # Wie onnx_diarization: Frames -> Sekunden -> Frames, int() rundet ab und
+    # kostet dabei manchmal den letzten Frame. Bewusst nachgebaut.
+    dauer = f.shape[0] * (_FP_SHIFT_MS / 1000.0)
+    return f[: int(dauer / (_FP_SHIFT_MS / 1000.0))]
+
+
+def _fp_session():
+    global _fp_sess
+    with _fp_lock:
+        if _fp_sess is None:
+            import onnxruntime as ort
+            from huggingface_hub import hf_hub_download
+
+            so = ort.SessionOptions()
+            so.intra_op_num_threads = int(os.environ.get("FINGERABDRUCK_THREADS", "4"))
+            so.inter_op_num_threads = 1
+            pfad = hf_hub_download(_FP_MODELL_REPO, _FP_MODELL_DATEI)
+            _fp_sess = ort.InferenceSession(pfad, so, providers=["CPUExecutionProvider"])
+            logger.info(f"Fingerabdruck-Modell geladen: {pfad}")
+        return _fp_sess
+
+
+@app.post("/fingerabdruck")
+async def fingerabdruck(request: Request):
+    roh = await request.body()
+    if not roh or len(roh) % 4:
+        return JSONResponse(status_code=400, content={"error": "erwarte float32-Samples (16 kHz mono)"})
+    audio = np.frombuffer(roh, dtype="<f4")
+    t = time.perf_counter()
+    try:
+        f = _fbank(audio)
+        e = _fp_session().run(None, {"feats": f[None, :, :]})[0][0]
+        e = e / np.linalg.norm(e)
+    except Exception as exc:
+        logger.error(f"/fingerabdruck: {exc}")
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+    return {"vektor": [float(x) for x in e], "modell": _FP_MODELL_REPO,
+            "ms": round((time.perf_counter() - t) * 1000, 1)}

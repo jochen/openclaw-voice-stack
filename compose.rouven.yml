@@ -107,10 +107,16 @@ services:
       context: ./voice-analysis
     container_name: voice-analysis
     environment:
-      # Re-STT der Stimmungsanalyse: dasselbe Modell wie speaches-warmup.
-      # Fest medium (alter Default) liess Speaches bei JEDEM Brain-Turn medium
-      # laden -> CUDA OOM, Speaches danach 3,6 statt 2,2 GB, Analyse 43 s.
+      # Re-STT von /analyze (nur das Brain-Werkzeug /analyze-last; die
+      # Live-Stimmung /mood transkribiert nicht): dasselbe Modell wie
+      # speaches-warmup. Mit medium laedt Speaches es nach -> CUDA OOM,
+      # Speaches danach 3,6 statt 2,2 GB (im Lasttest 2026-10-07 gesehen).
       - STT_MODEL=guillaumekln/faster-whisper-small
+      # /fingerabdruck fuer die Sprecher-Verifikation des Fablab-Pi (der Pi 4
+      # braucht dafuer 2,8 s, hier ~50 ms). Modell aus dem HF-Cache.
+      - FINGERABDRUCK_THREADS=4
+    volumes:
+      - ${HF_CACHE}:/root/.cache/huggingface
     ports:
       - "0.0.0.0:8001:8001"
     depends_on:
