@@ -135,8 +135,16 @@ services:
       - label=disable
     ports:
       - "0.0.0.0:8094:8094"
+    # Die GTX 1660 (sm_75) braucht beim ersten Lauf JIT-uebersetzte Kernel:
+    # gemessen 26 s fuer die erste Anfrage, 2-6 s fuer die naechsten Formen —
+    # laenger als die 15 s Wartegrenze der STT. Der Cache auf dem Host haelt
+    # das ueber Container-Neustarts.
+    environment:
+      - CUDA_CACHE_PATH=/cuda-cache
+      - CUDA_CACHE_MAXSIZE=1073741824
     volumes:
       - ${HOME}/modelle/qwen3-asr:/modelle:ro
+      - ${HOME}/.cache/qwenasr-cuda:/cuda-cache
     command:
       - "-m"
       - "/modelle/Qwen3-ASR-1.7B-Q8_0.gguf"
