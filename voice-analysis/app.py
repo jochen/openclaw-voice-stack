@@ -1,4 +1,5 @@
 import io
+import os
 import re
 import logging
 from typing import Optional
@@ -14,7 +15,10 @@ logger = logging.getLogger("voice-analysis")
 
 SPEACHES_URL = "http://speaches:8000"
 SER_URL = "http://ser:8002/ser"
-STT_MODEL = "guillaumekln/faster-whisper-medium"
+# Muss ein Modell sein, das Speaches auf diesem Host tragen kann: rouven
+# (GTX 1660, 6 GB) setzt small — medium wird dort zwar geladen, sprengt aber
+# den Speicher (CUDA OOM) und blieb halb resident (gemessen 2026-10-07).
+STT_MODEL = os.environ.get("STT_MODEL", "guillaumekln/faster-whisper-medium")
 
 app = FastAPI(title="voice-analysis")
 

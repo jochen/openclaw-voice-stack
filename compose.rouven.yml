@@ -104,6 +104,11 @@ services:
     build:
       context: ./voice-analysis
     container_name: voice-analysis
+    environment:
+      # Re-STT der Stimmungsanalyse: dasselbe Modell wie speaches-warmup.
+      # Fest medium (alter Default) liess Speaches bei JEDEM Brain-Turn medium
+      # laden -> CUDA OOM, Speaches danach 3,6 statt 2,2 GB, Analyse 43 s.
+      - STT_MODEL=guillaumekln/faster-whisper-small
     ports:
       - "0.0.0.0:8001:8001"
     depends_on:
