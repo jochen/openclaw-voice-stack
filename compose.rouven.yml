@@ -44,7 +44,10 @@ services:
       speaches:
         condition: service_healthy
     environment:
-      - STT_MODEL=guillaumekln/faster-whisper-medium
+      # small, NICHT medium: medium float32 + ser + Diarization sprengen die
+      # 6 GB der GTX 1660 (CUDA OOM -> HTTP 500, scheinbar zufaellig). Lag
+      # bis 2026-10-07 nur als lokale Aenderung auf dem Host.
+      - STT_MODEL=guillaumekln/faster-whisper-small
       - TTS_MODEL=speaches-ai/piper-de_DE-thorsten-medium
       - TTS_VOICE=de_DE-thorsten-medium
       - DIARIZATION_SEGMENTATION_MODEL=fedirz/segmentation_community_1
@@ -74,14 +77,16 @@ services:
     restart: "no"
 
   # ── SER – Speech Emotion Recognition (wav2vec2-large) ────────────────────────
+  # Seit 2026-10-07 auf der CPU (keine GPU-Geraete -> app.py nimmt "cpu"),
+  # wie auf gastonllm (384f117): macht 1,1 GB auf der GTX 1660 frei, damit
+  # Qwen3-ASR Platz hat. rouven hat 12 Kerne und sonst keine CPU-Last.
+  # Zurueck auf die GPU: devices: [nvidia.com/gpu=all] wieder einsetzen.
   ser:
     build:
       context: ./ser
     container_name: ser
-    devices:
-      - nvidia.com/gpu=all
-    security_opt:
-      - label=disable
+    environment:
+      - OMP_NUM_THREADS=8
     ports:
       - "0.0.0.0:8002:8002"
     volumes:
@@ -113,6 +118,49 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  # ── Qwen3-ASR (llama.cpp CUDA) — erste STT-Stufe des Fablab-Assistenten ─────
+  # Wie llamacpp-qwenasr in compose.gastonllm.yml, aber von aussen erreichbar
+  # (der Assistent laeuft auf dem Pi). Gewichte als feste Dateien in
+  # ~/modelle/qwen3-asr (Revision 36a6786, sha256 wie auf gastonllm), nicht
+  # per -hf: so haengt der Start nicht am HF-Cache-Layout. Holen:
+  #   curl -L -o <datei> https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/36a678687ba7d07a74ca70ccb0e36902e005fb80/<datei>
+  # fuer Qwen3-ASR-1.7B-Q8_0.gguf und mmproj-Qwen3-ASR-1.7B-Q8_0.gguf.
+  llamacpp-qwenasr:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:e8318a7b3988f9ca57b28c03486569e60def08f2b7b060550ebfa046e175e6cb
+    container_name: llamacpp-qwenasr
+    devices:
+      - nvidia.com/gpu=all
+    security_opt:
+      - label=disable
+    ports:
+      - "0.0.0.0:8094:8094"
+    volumes:
+      - ${HOME}/modelle/qwen3-asr:/modelle:ro
+    command:
+      - "-m"
+      - "/modelle/Qwen3-ASR-1.7B-Q8_0.gguf"
+      - "--mmproj"
+      - "/modelle/mmproj-Qwen3-ASR-1.7B-Q8_0.gguf"
+      - "-ngl"
+      - "99"
+      - "-c"
+      - "2048"
+      - "-ub"
+      - "256"
+      - "-np"
+      - "1"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8094"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8094/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
 
 volumes:
   speaches-cache:
