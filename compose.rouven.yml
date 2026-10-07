@@ -150,6 +150,11 @@ services:
       - "/modelle/Qwen3-ASR-1.7B-Q8_0.gguf"
       - "--mmproj"
       - "/modelle/mmproj-Qwen3-ASR-1.7B-Q8_0.gguf"
+      # Audio-Encoder auf der CPU (12 Kerne): gemessen 2026-10-07 gleich
+      # schnell (0,39 s / 0,92 s fuer 5-s- / 15-s-Clip), GPU 2,1 statt 3,0 GB.
+      # Mit Encoder auf der GPU fand die Speaches-Diarization keine 120 MB
+      # mehr -> HTTP 500 bei JEDEM Aufruf, auch ohne parallele Last.
+      - "--no-mmproj-offload"
       - "-ngl"
       - "99"
       - "-c"
