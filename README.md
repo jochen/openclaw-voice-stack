@@ -18,6 +18,7 @@ Compose-Datei.
 |------|---------------|-----|-------|
 | gastonllm | `compose.gastonllm.yml` | RTX 3060 Ti (Ampere) | Ersatz für rouven, wachsende Home-Hub-Rolle (perspektivisch eigenes kleines LLM) |
 | rouven | `compose.rouven.yml` | GTX 1660 (Turing) | Ursprüngliche Test-Auslagerung, `float32`-STT-Workaround (keine Tensor Cores) |
+| misterhandy | `compose.misterhandy.yml` | 2× Tesla M60 (Maxwell, sm_52) | FabLab-Sprachkiste seit 2026-11, löst rouven ab. speaches nur CPU-Rückfall, ser mit torch cu118. Host-Konfiguration (CDI für Podman 4.9, Warmup) in GitLab `fablab/misterhandy-host` |
 
 ## Dienste
 
