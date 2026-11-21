@@ -12,8 +12,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 
-# torch separat installieren (cu128-Index)
-RUN pip install --no-cache-dir torch==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+# torch separat installieren. Standard cu128 (Turing/Ampere: rouven, gastonllm).
+# misterhandy (Tesla M60, sm_52) setzt per build-args cu118 + 2.6.0: torch fuer
+# cu12x enthaelt keine sm_52-Kernel mehr, das Modell liefe still auf der CPU.
+ARG TORCH_VERSION=2.7.0
+ARG TORCH_INDEX=cu128
+RUN pip install --no-cache-dir torch==${TORCH_VERSION} --index-url https://download.pytorch.org/whl/${TORCH_INDEX}
 
 # Rest
 RUN pip install --no-cache-dir \
