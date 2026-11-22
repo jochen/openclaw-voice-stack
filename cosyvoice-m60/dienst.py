@@ -4,7 +4,10 @@ Gleiche HTTP-Schnittstelle wie cosy_dienst.py auf dem LLM-Rechner (.126), damit 
 Voice-Assistant (Misterhandy im FabLab, später Gaston zu Hause) nur die URL wechseln muss:
 
 POST /v1/audio/speech  {"input", "voice", "model"?, "response_format": "wav",
-                        "sample_rate"?: 24000|48000}
+                        "sample_rate"?: 24000|48000, "speed"?: 0.5–2.0}
+  speed != 1: CosyVoice kann Tempo nur ohne Streaming (staucht das Spektrogramm vor
+  dem Vocoder, Tonhöhe bleibt). Dann kommt der Satz am Stück statt in Schüben; der
+  Satz-Planer im Assistenten behandelt das wie einen einzigen großen Schub.
   -> WAV (16 bit mono) mit Platzhalter-Längen, Audio fließt, sobald es entsteht.
 GET  /health, /v1/models, /v1/voices
 POST /v1/voices        {"id": "<namensraum>/<name>-<pruefwert>", "text", "wav_b64"}
@@ -343,6 +346,11 @@ class H(http.server.BaseHTTPRequestHandler):
         text = str(body.get("input", "")).strip()
         stimme = body.get("voice") or STIMMEN[0]
         rate = int(body.get("sample_rate") or SR)
+        try:
+            tempo = min(2.0, max(0.5, float(body.get("speed") or 1.0)))
+        except (TypeError, ValueError):
+            return self._json(400, {"error": "speed keine Zahl"})
+        strom = abs(tempo - 1.0) < 0.01       # Tempo nur ohne Streaming (CosyVoice-Grenze)
         if not text:
             return self._json(400, {"error": "input leer"})
         if not bekannt(stimme):
@@ -362,7 +370,8 @@ class H(http.server.BaseHTTPRequestHandler):
         try:
             self.wfile.write(kopf(rate))
             m.token_hop_len = HOP
-            for o in M.inference_zero_shot(text, "", "", zero_shot_spk_id=stimme, stream=True):
+            for o in M.inference_zero_shot(text, "", "", zero_shot_spk_id=stimme, stream=strom,
+                                           speed=1.0 if strom else tempo):
                 x = o["tts_speech"].squeeze(0).float().cpu().numpy()
                 audio_s += len(x) / SR
                 if hoch is not None:
@@ -382,7 +391,7 @@ class H(http.server.BaseHTTPRequestHandler):
         print(json.dumps({"stimme": stimme, "zeichen": len(text), "gleichzeitig": gleichzeitig,
                           "erst_s": round(erst or -1, 2), "gesamt_s": round(dauer, 2),
                           "audio_s": round(audio_s, 2), "rtf": round(dauer / audio_s, 2) if audio_s else None,
-                          "rate": rate}), flush=True)
+                          "rate": rate, "tempo": tempo}), flush=True)
 
     def log_message(self, *a):
         pass
