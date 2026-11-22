@@ -94,6 +94,17 @@ m = M.model
 lm = m.llm
 qwen = lm.llm.model.model                # HF Qwen2Model, last_hidden_state = normierter letzter Zustand
 
+# --- Abschnittsgröße je Anfrage statt geteilt
+# CosyVoice2Model.tts liest token_hop_len aus dem Modell-Objekt und verdoppelt es
+# je Abschnitt (stream_scale_factor 2). Bei gleichzeitigen Anfragen (Pipeline)
+# erbte ein Satz die hochgeschaukelte Größe des vorigen, und der Start des
+# nächsten setzte sie mitten im Satz zurück — Schübe 2,0 / 0,48 / 0,96 statt
+# 0,48 / 0,96 / 1,92, der Planer des Assistenten lief leer (550 ms, 2026-11-22).
+# tts() läuft im Thread der jeweiligen HTTP-Anfrage, also gilt der Wert je Thread.
+_hop = threading.local()
+type(m).token_hop_len = property(lambda self: getattr(_hop, "wert", HOP),
+                                 lambda self, wert: setattr(_hop, "wert", wert))
+
 # --- Aufteilung auf die GPUs
 lm.to(LLM_GPU)
 m.flow.to(FLOW_GPU)
