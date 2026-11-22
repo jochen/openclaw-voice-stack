@@ -8,7 +8,7 @@ name: voice-misterhandy
 #   - Qwen3-ASR (llamacpp-qwenasr)  -> fuehrende Spracherkennung, GPU 0
 #   - voice-analysis + ser          -> Sprecher-Fingerabdruck + Stimmung, ser auf GPU 0
 #   - speaches                       -> NUR Rueckfall (Whisper-STT, Piper-TTS), CPU
-#   - CosyVoice (Sprachausgabe)      -> eigener Stack, GPU 1 (Phase 2, noch nicht hier)
+#   - cosyvoice (Sprachausgabe)      -> LLM GPU 1, Flow+HiFi-GAN GPU 0 (siehe cosyvoice-m60/dienst.py)
 # Keine Diarization mehr (seit 2026-10-07 Fingerabdruck statt Diarization).
 #
 # GPU im Container: CDI (nvidia.com/gpu=N). Podman 4.9 versteht die Spec von
@@ -191,6 +191,41 @@ services:
         curl -sf -m 180 -X POST http://voice-analysis:8001/mood -F "file=@/tmp/warm.wav" -o /dev/null \
           && echo "Mood ready." || echo "Mood-Warmup fehlgeschlagen (nicht fatal)."
     restart: "no"
+
+  # ── CosyVoice3 — Sprachausgabe (Antworten), fuer mehrere Assistenten ─────────
+  # Schnittstelle wie cosy_dienst.py auf .126 (Port 8010, /v1/audio/speech gestreamt, /v1/voices).
+  # Auf den M60 ohne vLLM/TensorRT: einzelne Saetze RTF ~1,2, aber gleichzeitige Anfragen laufen als
+  # Pipeline (LLM FIFO am Stueck auf GPU 1, Flow parallel auf GPU 0) -> Durchsatz RTF ~0,96.
+  # Der Voice-Assistant plant deshalb Pausen zwischen den Saetzen. Gedacht auch fuer Gaston
+  # (gastonllm ueber das VPN): Stimmen der Assistenten liegen in eigenen Namensraeumen.
+  # Modell: ~/modelle/cosyvoice3/Fun-CosyVoice3-0.5B-2512 (HF FunAudioLLM/Fun-CosyVoice3-0.5B-2512,
+  # Revision 29e01c4e, ohne *.plan / estimator.onnx / batch.onnx). Fest geladene Stimmen: ~/cosyvoice-stimmen
+  # (<name>.wav + <name>.txt, wie STIMMEN_DIR auf .126).
+  cosyvoice:
+    build:
+      context: ./cosyvoice-m60
+    container_name: cosyvoice
+    devices:
+      - nvidia.com/gpu=all
+    security_opt:
+      - label=disable
+    ports:
+      - "0.0.0.0:8010:8010"
+    environment:
+      - LLM_GPU=1
+      - FLOW_GPU=0
+      - SCHRITTE=5
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ${HOME}/modelle/cosyvoice3:/modelle:ro
+      - ${HOME}/cosyvoice-stimmen:/stimmen:ro
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8010/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
 
 volumes:
   speaches-cache:
